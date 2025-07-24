@@ -8,4 +8,4 @@ on rentre ensuite la command
 line init=/bin/bash
 ```
 
-et on passe root
+Nous somme passer root !
